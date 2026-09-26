@@ -128,7 +128,7 @@ def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = N
                     player, ai, loaded_turn, diplomacy, msg = load_game_with_diplomacy(filepath)
                     print(f"\n{msg}")
                     turn = loaded_turn
-                    parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn)
+                    parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn, game_map=game_map)
                     loaded = True
                     break  # Restart the outer turn loop with new state
                 except Exception as e:
@@ -248,25 +248,11 @@ def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = N
 def main():
     print_banner()
 
-    # Main menu
-    print("  1. Free Play — Choose your civilization and fight an AI opponent")
-    print("  2. Campaign — Play through historical scenarios\n")
-
-    while True:
-        try:
-            choice = input("  Select mode (1 or 2): ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n\nThe drums fall silent. Your people await your return.\n")
-            return
-
-        if choice == "1":
-            free_play()
-            break
-        elif choice == "2":
-            campaign_menu()
-            break
-        else:
-            print("  Please enter 1 or 2.")
+    # Check for --campaign flag
+    if "--campaign" in sys.argv:
+        campaign_menu()
+    else:
+        free_play()
 
     print("\nThank you for playing Age of Kumasi!")
     print("The Gold Coast remembers.\n")
@@ -275,6 +261,9 @@ def main():
 def free_play():
     """Standard free play mode."""
     from src.game import PlayerState
+
+    # Create the game map
+    game_map = generate_map()
 
     # Check for saved game
     diplomacy = DiplomacyManager()
@@ -290,7 +279,7 @@ def free_play():
                 player, ai, turn, diplomacy, msg = load_game_with_diplomacy(DEFAULT_SAVE_FILE)
                 print(f"\n{msg}")
                 print_intro(player, ai)
-                game_loop(player, ai, diplomacy=diplomacy, start_turn=turn)
+                game_loop(player, ai, diplomacy=diplomacy, start_turn=turn, game_map=game_map)
                 return
             except Exception as e:
                 print(f"\nFailed to load saved game: {e}")
@@ -301,18 +290,28 @@ def free_play():
     civ = get_civ(civ_name)
     print(f"\nYou have chosen the {civ.name}! {civ.bonus}")
 
-    # Create player
-    player = PlayerState(name="You", civ=civ)
+    # Create player at spawn position
+    sx, sy = game_map.player_spawn
+    player = PlayerState(name="You", civ=civ, spawn_x=sx, spawn_y=sy)
 
-    # Create AI opponent
+    # Create AI opponent at opposite corner
     ai_civ_name = choose_ai_civ(civ_name)
     ai = AIPlayer(name="Enemy", civ_name=ai_civ_name)
+    # Place AI at their spawn
+    ax, ay = game_map.ai_spawn
+    ai.state.spawn_x = ax
+    ai.state.spawn_y = ay
+    # Move existing AI buildings to spawn position
+    for b in ai.state.buildings:
+        b.x, b.y = ax, ay
+    for u in ai.state.units:
+        u.x, u.y = ax, ay
 
     # Print intro
     print_intro(player, ai)
 
     # Start game
-    game_loop(player, ai, diplomacy=diplomacy)
+    game_loop(player, ai, diplomacy=diplomacy, game_map=game_map)
 
 
 def campaign_menu():
