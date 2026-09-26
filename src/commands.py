@@ -497,7 +497,7 @@ class CommandParser:
         filepath = (args or [])[0] if args else "savegame.json"
         try:
             from .save_load import save_game
-            msg = save_game(self.player, self.ai, self.diplomacy, filepath)
+            msg = save_game(self.player, self.ai, filepath=filepath, diplomacy=self.diplomacy)
             return msg, False
         except Exception as e:
             return f"Error saving game: {e}", False

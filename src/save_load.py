@@ -275,3 +275,18 @@ def load_game(filepath: str = "savegame.json") -> tuple[PlayerState, AIPlayer, i
     turn = save_data.get("turn", 1)
 
     return player, ai, turn, f"Game loaded from {filepath}. Welcome back, {player.name}!"
+
+
+def load_game_with_diplomacy(filepath: str = "savegame.json"):
+    """Load game state including diplomacy. Returns (player, ai, turn, diplomacy, message)."""
+    from .diplomacy import DiplomacyManager, DiplomacyState
+    
+    player, ai, turn, msg = load_game(filepath)
+    
+    diplomacy = DiplomacyManager()
+    if "diplomacy" in json.load(open(filepath)):
+        data = json.load(open(filepath))
+        for key, rel_dict in data.get("diplomacy", {}).items():
+            diplomacy.relations[key] = DiplomacyState.from_dict(rel_dict)
+    
+    return player, ai, turn, diplomacy, msg

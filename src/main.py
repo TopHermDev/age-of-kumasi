@@ -16,6 +16,7 @@ from src.game import PlayerState, AGES
 from src.commands import CommandParser
 from src.ai import AIPlayer
 from src.diplomacy import DiplomacyManager
+from src.map_engine import generate_map
 
 
 def print_banner():
@@ -75,7 +76,7 @@ def print_intro(player: PlayerState, ai: AIPlayer):
 DEFAULT_SAVE_FILE = "savegame.json"
 
 
-def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = None, start_turn: int = 1):
+def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = None, start_turn: int = 1, game_map=None):
     """Main game loop."""
     if diplomacy is None:
         diplomacy = DiplomacyManager()
@@ -103,7 +104,7 @@ def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = N
         print(f"  Diplomacy: {state_icons[rel.state]} with {ai.state.civ.name} (Rep: {rel.reputation})")
 
         # Player input loop
-        parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn)
+        parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn, game_map=game_map)
         turn_ended = False
         loaded = False
 
