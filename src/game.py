@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from .civilizations import Civilization, get_civ
 from .units import UNITS, UnitTemplate
 from .buildings import BUILDINGS, BuildingTemplate
+from .technologies import TECHS, TechTemplate, get_tech
 
 
 AGES = {
@@ -84,6 +85,14 @@ class BuildOrder:
 
 
 @dataclass
+class TechResearchOrder:
+    """A technology currently being researched."""
+    template: TechTemplate
+    turns_remaining: int
+    owner: str = "player"
+
+
+@dataclass
 class Resources:
     food: int = 200
     wood: int = 200
@@ -127,6 +136,10 @@ class PlayerState:
     build_queue: list[BuildOrder] = field(default_factory=list)
     population: int = 0
     max_population: int = 0
+    combat_log: list[str] = field(default_factory=list)
+    last_battle: str = ""
+    researched_techs: set = field(default_factory=set)
+    research_queue: list = field(default_factory=list)
 
     def __post_init__(self):
         # Start with a Town Center and some villagers
@@ -155,8 +168,6 @@ class PlayerState:
             1 for b in self.buildings
             if b.complete and b.template.name == "Farm"
         )
-        # Each completed farm doesn't give pop — need houses later
-        # For now, town center gives 5 pop space
         self.max_population = 5 + houses * 2
 
     def age_name(self) -> str:
@@ -174,7 +185,6 @@ class PlayerState:
                 if current < amt:
                     needed.append(f"{res}: need {amt - current} more")
             return False, f"Insufficient resources: {', '.join(needed)}"
-        # Check palace requirement for Age III
         if next_age >= 3:
             has_palace = any(
                 b.template.name == "Palace" and b.complete
@@ -190,7 +200,6 @@ class PlayerState:
             return msg
         next_age = self.age + 1
         cost = AGE_COSTS[next_age]
-        # Apply civ bonus for age advance
         advance_cost_multiplier = self.civ.bonus_effect.get("age_advance", 1.0)
         adjusted_cost = {k: int(v * advance_cost_multiplier) for k, v in cost.items()}
         self.resources.spend(adjusted_cost)
@@ -209,7 +218,6 @@ class PlayerState:
             return None, f"{template.name} requires {AGES[template.age_required]}."
         if self.population >= self.max_population:
             return None, "Population limit reached. Build more farms or houses."
-        # Apply civ bonuses
         cost = dict(template.cost)
         return cost, "OK"
 
@@ -253,7 +261,6 @@ class PlayerState:
             return f"Unknown building: {building_name}"
         if template.age_required > self.age:
             return f"{template.name} requires {AGES[template.age_required]}."
-        # Apply civ bonus for wood cost
         cost = dict(template.cost)
         if "wood" in cost and self.civ.bonus_effect.get("building_wood_cost"):
             cost["wood"] = int(cost["wood"] * self.civ.bonus_effect["building_wood_cost"])
@@ -277,8 +284,71 @@ class PlayerState:
         cost_str = ", ".join(f"{v} {k}" for k, v in cost.items() if v > 0)
         return f"Building {template.name}. Cost: {cost_str}. ETA: {template.build_time} turns."
 
+    # === Technology methods ===
+
+    def get_tech_multiplier(self, effect_key: str) -> float:
+        """Get the cumulative multiplier for a tech effect key (additive stacking)."""
+        total = 0.0
+        for tech_name in self.researched_techs:
+            if tech_name in TECHS:
+                total += TECHS[tech_name].effects.get(effect_key, 0.0)
+        return 1.0 + total
+
+    def get_tech_multipliers(self) -> dict:
+        """Get all tech multipliers as a dict for combat/other systems."""
+        return {
+            "melee_attack_mult": self.get_tech_multiplier("melee_attack_mult"),
+            "ranged_attack_mult": self.get_tech_multiplier("ranged_attack_mult"),
+            "naval_attack_mult": self.get_tech_multiplier("naval_attack_mult"),
+            "unit_hp_mult": self.get_tech_multiplier("unit_hp_mult"),
+            "unit_speed_mult": self.get_tech_multiplier("unit_speed_mult"),
+            "building_hp_mult": self.get_tech_multiplier("building_hp_mult"),
+            "gold_income_mult": self.get_tech_multiplier("gold_income_mult"),
+            "food_income_mult": self.get_tech_multiplier("food_income_mult"),
+            "kola_income_mult": self.get_tech_multiplier("kola_income_mult"),
+        }
+
+    def start_research(self, tech_name: str) -> str:
+        """Start researching a technology. Requires a Library building."""
+        template = get_tech(tech_name)
+        if template.age_required > self.age:
+            return f"{template.name} requires {AGES[template.age_required]}."
+        if template.name in self.researched_techs:
+            return f"You have already researched {template.name}."
+        for prereq in template.prerequisites:
+            if prereq not in self.researched_techs:
+                prereq_tech = TECHS.get(prereq)
+                pname = prereq_tech.name if prereq_tech else prereq
+                return f"{template.name} requires '{pname}' first."
+        has_library = any(
+            b.template.special == "research" and b.complete
+            for b in self.buildings
+        )
+        if not has_library:
+            return "You must build a Library before researching technologies."
+        for order in self.research_queue:
+            if order.template.name == template.name:
+                return f"{template.name} is already being researched."
+        if not self.resources.can_afford(template.cost):
+            needed = []
+            for res, amt in template.cost.items():
+                current = getattr(self.resources, res, 0)
+                if current < amt:
+                    needed.append(f"{res}: need {amt - current} more")
+            return f"Insufficient resources: {', '.join(needed)}"
+        self.resources.spend(template.cost)
+        self.research_queue.append(TechResearchOrder(
+            template=template,
+            turns_remaining=template.research_time,
+            owner=self.name,
+        ))
+        cost_str = ", ".join(f"{v} {k}" for k, v in template.cost.items() if v > 0)
+        return f"Researching {template.name}. Cost: {cost_str}. ETA: {template.research_time} turns."
+
+    # === Turn processing ===
+
     def process_turn(self) -> list[str]:
-        """Process one turn: complete training, construction, income."""
+        """Process one turn: complete training, construction, research, income."""
         events = []
 
         # Process train queue
@@ -316,6 +386,18 @@ class PlayerState:
                 remaining_build.append(order)
         self.build_queue = remaining_build
 
+        # Process research queue
+        completed_techs = []
+        remaining_research = []
+        for order in self.research_queue:
+            order.turns_remaining -= 1
+            if order.turns_remaining <= 0:
+                self.researched_techs.add(order.template.name)
+                completed_techs.append(order.template.name)
+            else:
+                remaining_research.append(order)
+        self.research_queue = remaining_research
+
         # Generate income from buildings
         income = {"food": 0, "wood": 0, "gold": 0, "kola": 0}
         for bld in self.buildings:
@@ -334,6 +416,14 @@ class PlayerState:
             elif bld.template.special == "trade":
                 income["gold"] += 8
 
+        # Apply tech income multipliers
+        gold_mult = self.get_tech_multiplier("gold_income_mult")
+        food_mult = self.get_tech_multiplier("food_income_mult")
+        kola_mult = self.get_tech_multiplier("kola_income_mult")
+        income["gold"] = int(income["gold"] * gold_mult)
+        income["food"] = int(income["food"] * food_mult)
+        income["kola"] = int(income["kola"] * kola_mult)
+
         self.resources.earn(income)
 
         # Update population
@@ -344,6 +434,8 @@ class PlayerState:
             events.append(f"A {name} has joined your forces.")
         for name in completed_buildings:
             events.append(f"Construction of {name} is complete.")
+        for name in completed_techs:
+            events.append(f"Research complete: {name}!")
         if any(v > 0 for v in income.values()):
             income_str = ", ".join(f"+{v} {k}" for k, v in income.items() if v > 0)
             events.append(f"Income: {income_str}")
@@ -390,6 +482,20 @@ class PlayerState:
             lines.append("  Construction:")
             for order in self.build_queue:
                 lines.append(f"    {order.template.name}: {order.turns_remaining} turns")
+
+        if self.research_queue:
+            lines.append("  Research:")
+            for order in self.research_queue:
+                lines.append(f"    {order.template.name}: {order.turns_remaining} turns")
+
+        if self.researched_techs:
+            lines.append("  Technologies:")
+            for tech_name in sorted(self.researched_techs):
+                lines.append(f"    ✓ {tech_name}")
+
+        # Combat results
+        if self.last_battle:
+            lines.append(f"\n  {self.last_battle}")
 
         lines.append(f"{'═' * 50}")
         return "\n".join(lines)

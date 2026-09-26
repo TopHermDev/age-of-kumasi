@@ -15,6 +15,7 @@ from src.civilizations import list_civs, get_civ, CIVILIZATIONS
 from src.game import PlayerState, AGES
 from src.commands import CommandParser
 from src.ai import AIPlayer
+from src.diplomacy import DiplomacyManager
 
 
 def print_banner():
@@ -71,9 +72,14 @@ def print_intro(player: PlayerState, ai: AIPlayer):
     print(f"  Type 'end' to finish your turn.\n")
 
 
-def game_loop(player: PlayerState, ai: AIPlayer):
+DEFAULT_SAVE_FILE = "savegame.json"
+
+
+def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = None, start_turn: int = 1):
     """Main game loop."""
-    turn = 1
+    if diplomacy is None:
+        diplomacy = DiplomacyManager()
+    turn = start_turn
     max_turns = 100  # Game ends after this many turns
 
     while turn <= max_turns:
@@ -84,9 +90,22 @@ def game_loop(player: PlayerState, ai: AIPlayer):
         # Show player status
         print(player.status_report())
 
+        # Show diplomacy status in turn summary
+        entity_key = ai.state.civ.name.lower()
+        rel = diplomacy.get_relation(entity_key)
+        from src.diplomacy import RelationState
+        state_icons = {
+            RelationState.NEUTRAL: "⚖️  Neutral",
+            RelationState.ALLIED: "🤝 Allied",
+            RelationState.HOSTILE: "⚠️  Hostile",
+            RelationState.AT_WAR: "⚔️  At War",
+        }
+        print(f"  Diplomacy: {state_icons[rel.state]} with {ai.state.civ.name} (Rep: {rel.reputation})")
+
         # Player input loop
-        parser = CommandParser(player)
+        parser = CommandParser(player, ai=ai, diplomacy=diplomacy)
         turn_ended = False
+        loaded = False
 
         while not turn_ended:
             try:
@@ -100,16 +119,96 @@ def game_loop(player: PlayerState, ai: AIPlayer):
                 print("\nThe drums fall silent. Your people await your return.")
                 return
 
+            # Handle load command — swap state mid-game
+            if response.startswith("__LOAD__"):
+                filepath = response[len("__LOAD__"):]
+                try:
+                    from src.save_load import load_game
+                    player, ai, diplomacy, msg = load_game(filepath)
+                    print(f"\n{msg}")
+                    parser = CommandParser(player, ai=ai, diplomacy=diplomacy)
+                    loaded = True
+                    break  # Restart the outer turn loop with new state
+                except Exception as e:
+                    print(f"\nError reloading state: {e}")
+                    continue
+
             print(f"\n{response}")
 
             if should_end:
                 turn_ended = True
 
-        # AI takes its turn
-        print(f"\n  The {ai.state.civ.name} act...")
-        ai_events = ai.take_turn()
-        for event in ai_events:
-            print(f"    • {event}")
+        if loaded:
+            continue  # Restart the outer loop at the same turn
+        if turn_ended:
+            # AI takes its turn
+            print(f"\n  The {ai.state.civ.name} act...")
+            ai_events = ai.take_turn()
+            for event in ai_events:
+                print(f"    • {event}")
+            
+            # AI attacks if it has military and player has military
+            ai_military = [u for u in ai.state.units if u.alive and u.template.category != "civilian"]
+            player_military = [u for u in player.units if u.alive and u.template.category != "civilian"]
+            
+            if ai_military and player_military:
+                print(f"\n  ⚔ The {ai.state.civ.name} forces launch an attack!")
+                from src.combat import resolve_combat, find_nearest_enemy, get_battle_summary
+                
+                results = []
+                for enemy_unit in ai_military:
+                    if not enemy_unit.alive:
+                        continue
+                    target = find_nearest_enemy(enemy_unit, player_military)
+                    if target:
+                        result = resolve_combat(enemy_unit, target)
+                        results.append(result)
+                
+                # Remove dead units
+                player.units = [u for u in player.units if u.alive]
+                ai.state.units = [u for u in ai.state.units if u.alive]
+                
+                # Show battle summary
+                battle_summary = get_battle_summary(results)
+                player.last_battle = battle_summary
+                print(battle_summary)
+
+            # AI attacks only if not allied
+            from src.diplomacy import RelationState
+            ai_rel = diplomacy.get_relation(ai.state.civ.name.lower())
+            if ai_rel.state != RelationState.ALLIED:
+                ai_military = [u for u in ai.state.units if u.alive and u.template.category != "civilian"]
+                player_military = [u for u in player.units if u.alive and u.template.category != "civilian"]
+
+                if ai_military and player_military:
+                    print(f"\n  ⚔ The {ai.state.civ.name} forces launch an attack!")
+                    from src.combat import resolve_combat, find_nearest_enemy, get_battle_summary
+
+                    results = []
+                    for enemy_unit in ai_military:
+                        if not enemy_unit.alive:
+                            continue
+                        target = find_nearest_enemy(enemy_unit, player_military)
+                        if target:
+                            result = resolve_combat(enemy_unit, target)
+                            results.append(result)
+
+                    # Remove dead units
+                    player.units = [u for u in player.units if u.alive]
+                    ai.state.units = [u for u in ai.state.units if u.alive]
+
+                    # Show battle summary
+                    battle_summary = get_battle_summary(results)
+                    player.last_battle = battle_summary
+                    print(battle_summary)
+            else:
+                if ai_military and player_military:
+                    print(f"\n  The {ai.state.civ.name} honor the alliance. No attack.")
+
+            # Process diplomacy end-of-turn effects
+            diplo_events = diplomacy.end_turn_update(ai.personality)
+            for event in diplo_events:
+                print(f"    • {event}")
 
         # Check win conditions
         if player.age >= 4 and ai.state.age < 4:
@@ -175,6 +274,25 @@ def free_play():
     """Standard free play mode."""
     from src.game import PlayerState
 
+    # Check for saved game
+    if os.path.exists(DEFAULT_SAVE_FILE):
+        try:
+            choice = input(f"\n  Found saved game ({DEFAULT_SAVE_FILE}). Load it? [y/N] > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            choice = "n"
+
+        if choice in ("y", "yes"):
+            try:
+                from src.save_load import load_game
+                player, ai, diplomacy, msg = load_game(DEFAULT_SAVE_FILE)
+                print(f"\n{msg}")
+                print_intro(player, ai)
+                game_loop(player, ai, diplomacy=diplomacy, start_turn=1)
+                return
+            except Exception as e:
+                print(f"\nFailed to load saved game: {e}")
+                print("Starting a new game...\n")
+
     # Choose civilization
     civ_name = choose_civilization()
     civ = get_civ(civ_name)
@@ -187,11 +305,14 @@ def free_play():
     ai_civ_name = choose_ai_civ(civ_name)
     ai = AIPlayer(name="Enemy", civ_name=ai_civ_name)
 
+    # Create diplomacy manager
+    diplomacy = DiplomacyManager()
+
     # Print intro
     print_intro(player, ai)
 
     # Start game
-    game_loop(player, ai)
+    game_loop(player, ai, diplomacy=diplomacy)
 
 
 def campaign_menu():
