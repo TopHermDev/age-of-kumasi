@@ -147,6 +147,34 @@ def game_loop(player: PlayerState, ai: AIPlayer):
 def main():
     print_banner()
 
+    # Main menu
+    print("  1. Free Play — Choose your civilization and fight an AI opponent")
+    print("  2. Campaign — Play through historical scenarios\n")
+
+    while True:
+        try:
+            choice = input("  Select mode (1 or 2): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nThe drums fall silent. Your people await your return.\n")
+            return
+
+        if choice == "1":
+            free_play()
+            break
+        elif choice == "2":
+            campaign_menu()
+            break
+        else:
+            print("  Please enter 1 or 2.")
+
+    print("\nThank you for playing Age of Kumasi!")
+    print("The Gold Coast remembers.\n")
+
+
+def free_play():
+    """Standard free play mode."""
+    from src.game import PlayerState
+
     # Choose civilization
     civ_name = choose_civilization()
     civ = get_civ(civ_name)
@@ -165,8 +193,46 @@ def main():
     # Start game
     game_loop(player, ai)
 
-    print("\nThank you for playing Age of Kumasi!")
-    print("The Gold Coast remembers.\n")
+
+def campaign_menu():
+    """Campaign mode menu and game runner."""
+    from src.campaign import list_scenarios, get_scenario, setup_scenario, campaign_game_loop
+
+    print(f"\n{'═' * 50}")
+    print("  CAMPAIGN MODE")
+    print("  Play through the history of Ghana, chapter by chapter.")
+    print(f"{'═' * 50}\n")
+
+    print(list_scenarios())
+
+    while True:
+        try:
+            choice = input(f"  Select scenario (1-3): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\nThe drums fall silent.\n")
+            return
+
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= 3:
+                break
+        print("  Please enter 1, 2, or 3.")
+
+    scenario = get_scenario(idx)
+    print(f"\n  Starting: {scenario.name}")
+    print(f"{'─' * 50}")
+    print(f"  {scenario.description}")
+    print(f"{'─' * 50}\n")
+
+    player, ai = setup_scenario(scenario)
+
+    # Print scenario intro
+    print(f"  You lead the {player.civ.name} people.")
+    print(f"  Your rival: {ai.state.civ.name} ({ai.personality}).")
+    print(f"  Turn limit: {scenario.turn_limit}")
+    print(f"\n  Type 'help' for commands. Type 'end' to finish your turn.\n")
+
+    campaign_game_loop(player, ai, scenario)
 
 
 if __name__ == "__main__":
