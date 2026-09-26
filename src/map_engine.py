@@ -337,21 +337,21 @@ def generate_map(seed: int | None = None) -> GameMap:
                 if cell.terrain == "savanna":
                     cell.terrain = "gold_field"
 
-    # 7. Kola groves in forest regions
+    # 7. Kola groves — place near forest clusters
     kola_centers = [
-        (4, 6),
-        (6, 10),
-        (13, 7),
+        (3, 5),   # in western forest
+        (5, 8),   # in southwest forest
+        (12, 6),  # in eastern forest
     ]
     for cx, cy in kola_centers:
-        cluster_size = random.randint(2, 3)
+        cluster_size = random.randint(2, 4)
         for _ in range(cluster_size):
             dx = random.randint(-2, 2)
             dy = random.randint(-2, 2)
             nx, ny = cx + dx, cy + dy
             if game_map.in_bounds(nx, ny):
                 cell = game_map.cells[ny][nx]
-                if cell.terrain == "forest":
+                if cell.terrain in ("forest", "savanna"):
                     cell.terrain = "kola_grove"
 
     # 8. Scatter a few villages

@@ -346,13 +346,30 @@ def campaign_menu():
 
     player, ai = setup_scenario(scenario)
 
+    # Create a map for the campaign
+    game_map = generate_map()
+    # Place player and AI at spawn positions
+    sx, sy = game_map.player_spawn
+    player.spawn_x, player.spawn_y = sx, sy
+    for b in player.buildings:
+        b.x, b.y = sx, sy
+    for u in player.units:
+        u.x, u.y = sx, sy
+
+    ax, ay = game_map.ai_spawn
+    ai.state.spawn_x, ai.state.spawn_y = ax, ay
+    for b in ai.state.buildings:
+        b.x, b.y = ax, ay
+    for u in ai.state.units:
+        u.x, u.y = ax, ay
+
     # Print scenario intro
     print(f"  You lead the {player.civ.name} people.")
     print(f"  Your rival: {ai.state.civ.name} ({ai.personality}).")
     print(f"  Turn limit: {scenario.turn_limit}")
     print(f"\n  Type 'help' for commands. Type 'end' to finish your turn.\n")
 
-    campaign_game_loop(player, ai, scenario)
+    campaign_game_loop(player, ai, scenario, game_map=game_map)
 
 
 if __name__ == "__main__":

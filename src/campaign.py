@@ -297,7 +297,7 @@ def get_narrative(scenario: Scenario, turn: int) -> str | None:
     return scenario.narrative_events.get(turn)
 
 
-def campaign_game_loop(player: PlayerState, ai: AIPlayer, scenario: Scenario):
+def campaign_game_loop(player: PlayerState, ai: AIPlayer, scenario: Scenario, game_map=None):
     """Main game loop for campaign mode with narrative events and win/lose checks."""
     from src.commands import CommandParser
 
@@ -322,7 +322,7 @@ def campaign_game_loop(player: PlayerState, ai: AIPlayer, scenario: Scenario):
         print(player.status_report())
 
         # Player input loop
-        parser = CommandParser(player)
+        parser = CommandParser(player, game_map=game_map)
         turn_ended = False
 
         while not turn_ended:
