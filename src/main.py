@@ -103,7 +103,7 @@ def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = N
         print(f"  Diplomacy: {state_icons[rel.state]} with {ai.state.civ.name} (Rep: {rel.reputation})")
 
         # Player input loop
-        parser = CommandParser(player, ai=ai, diplomacy=diplomacy)
+        parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn)
         turn_ended = False
         loaded = False
 
@@ -123,10 +123,11 @@ def game_loop(player: PlayerState, ai: AIPlayer, diplomacy: DiplomacyManager = N
             if response.startswith("__LOAD__"):
                 filepath = response[len("__LOAD__"):]
                 try:
-                    from src.save_load import load_game
-                    player, ai, diplomacy, msg = load_game(filepath)
+                    from src.save_load import load_game_with_diplomacy
+                    player, ai, loaded_turn, diplomacy, msg = load_game_with_diplomacy(filepath)
                     print(f"\n{msg}")
-                    parser = CommandParser(player, ai=ai, diplomacy=diplomacy)
+                    turn = loaded_turn
+                    parser = CommandParser(player, ai=ai, diplomacy=diplomacy, turn=turn)
                     loaded = True
                     break  # Restart the outer turn loop with new state
                 except Exception as e:
@@ -275,6 +276,7 @@ def free_play():
     from src.game import PlayerState
 
     # Check for saved game
+    diplomacy = DiplomacyManager()
     if os.path.exists(DEFAULT_SAVE_FILE):
         try:
             choice = input(f"\n  Found saved game ({DEFAULT_SAVE_FILE}). Load it? [y/N] > ").strip().lower()
@@ -283,11 +285,11 @@ def free_play():
 
         if choice in ("y", "yes"):
             try:
-                from src.save_load import load_game
-                player, ai, diplomacy, msg = load_game(DEFAULT_SAVE_FILE)
+                from src.save_load import load_game_with_diplomacy
+                player, ai, turn, diplomacy, msg = load_game_with_diplomacy(DEFAULT_SAVE_FILE)
                 print(f"\n{msg}")
                 print_intro(player, ai)
-                game_loop(player, ai, diplomacy=diplomacy, start_turn=1)
+                game_loop(player, ai, diplomacy=diplomacy, start_turn=turn)
                 return
             except Exception as e:
                 print(f"\nFailed to load saved game: {e}")
@@ -304,9 +306,6 @@ def free_play():
     # Create AI opponent
     ai_civ_name = choose_ai_civ(civ_name)
     ai = AIPlayer(name="Enemy", civ_name=ai_civ_name)
-
-    # Create diplomacy manager
-    diplomacy = DiplomacyManager()
 
     # Print intro
     print_intro(player, ai)

@@ -28,10 +28,13 @@ class Unit:
     x: int = 0
     y: int = 0
     owner: str = "player"
+    moves_remaining: int = 0  # movement points left this turn
 
     def __post_init__(self):
         if self.hp == 0:
             self.hp = self.template.hp
+        if self.moves_remaining == 0:
+            self.moves_remaining = max(1, int(self.template.speed))
 
     @property
     def name(self):
@@ -40,6 +43,10 @@ class Unit:
     @property
     def alive(self):
         return self.hp > 0
+
+    def reset_moves(self):
+        """Reset movement points at start of turn."""
+        self.moves_remaining = max(1, int(self.template.speed))
 
 
 @dataclass
@@ -140,13 +147,15 @@ class PlayerState:
     last_battle: str = ""
     researched_techs: set = field(default_factory=set)
     research_queue: list = field(default_factory=list)
+    spawn_x: int = 10
+    spawn_y: int = 10
 
     def __post_init__(self):
-        # Start with a Town Center and some villagers
+        # Start with a Town Center and some villagers at spawn position
         if not self.buildings:
             tc = BuildingInstance(
                 template=BUILDINGS["town_center"],
-                x=10, y=10,
+                x=self.spawn_x, y=self.spawn_y,
                 owner=self.name,
                 turns_remaining=0,
             )
@@ -155,11 +164,24 @@ class PlayerState:
             for i in range(3):
                 v = Unit(
                     template=UNITS["villager"],
-                    x=10, y=10,
+                    x=self.spawn_x, y=self.spawn_y,
                     owner=self.name,
                 )
                 self.units.append(v)
         self._update_pop()
+
+    def get_alive_units(self) -> list[Unit]:
+        return [u for u in self.units if u.alive]
+
+    def get_alive_buildings(self) -> list[BuildingInstance]:
+        return [b for b in self.buildings if b.complete]
+
+    def get_nearest_friendly_building(self, x: int, y: int) -> BuildingInstance | None:
+        """Find the nearest complete friendly building to a position."""
+        alive = self.get_alive_buildings()
+        if not alive:
+            return None
+        return min(alive, key=lambda b: abs(b.x - x) + abs(b.y - y))
 
     def _update_pop(self):
         alive_units = [u for u in self.units if u.alive]
@@ -348,8 +370,13 @@ class PlayerState:
     # === Turn processing ===
 
     def process_turn(self) -> list[str]:
-        """Process one turn: complete training, construction, research, income."""
+        """Process one turn: complete training, construction, research, income, reset movement."""
         events = []
+
+        # Reset unit movement
+        for u in self.units:
+            if u.alive:
+                u.reset_moves()
 
         # Process train queue
         completed_units = []
@@ -359,7 +386,7 @@ class PlayerState:
             if order.turns_remaining <= 0:
                 unit = Unit(
                     template=order.template,
-                    x=10, y=10,
+                    x=self.spawn_x, y=self.spawn_y,
                     owner=order.owner,
                 )
                 self.units.append(unit)
@@ -495,7 +522,9 @@ class PlayerState:
 
         # Combat results
         if self.last_battle:
-            lines.append(f"\n  {self.last_battle}")
+            # Strip trailing border to avoid double-border
+            battle = self.last_battle.rstrip('═').rstrip()
+            lines.append(f"\n  {battle}")
 
         lines.append(f"{'═' * 50}")
         return "\n".join(lines)
