@@ -1,0 +1,8 @@
+# Web/multiplayer server dependencies.
+# The terminal game (src/main.py) stays pure standard library — nothing here is
+# needed to play in the terminal.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# Test-only:
+pytest>=8.0
+httpx>=0.27
