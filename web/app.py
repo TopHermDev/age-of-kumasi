@@ -89,6 +89,7 @@ class RoomManager:
         return self.directory / f"{code}.json"
 
     def save(self, session: Session) -> None:
+        session.last_activity = time.time()
         self._path(session.code).write_text(
             json.dumps(session.to_dict(), separators=(",", ":")), encoding="utf-8"
         )
@@ -136,9 +137,15 @@ class RoomManager:
             self._path(code).unlink()
 
     def prune(self) -> None:
+        """Drop finished rooms, and rooms nobody is connected to, after the TTL."""
         now = time.time()
         for code, session in list(self.rooms.items()):
-            if session.state == "finished" and now - session.created_at > ROOM_TTL:
+            finished = session.state == "finished" and now - session.created_at > ROOM_TTL
+            abandoned = (
+                not any(slot.connected for slot in session.players.values())
+                and now - session.last_activity > ROOM_TTL
+            )
+            if finished or abandoned:
                 self.delete(code)
 
     def open_rooms(self) -> list[dict]:
@@ -211,8 +218,12 @@ async def _broadcast(code: str, session: Session, event: dict | None = None) -> 
 
 async def _turn_ticker() -> None:
     """End expired turns once per second (server-side authority for the turn timer)."""
+    ticks = 0
     while True:
         await asyncio.sleep(1)
+        ticks += 1
+        if ticks % 300 == 0:  # every 5 minutes
+            manager.prune()
         for code, session in list(manager.rooms.items()):
             if session.state != "active" or not session.expired():
                 continue

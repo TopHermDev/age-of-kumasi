@@ -347,6 +347,32 @@ def test_leave_room_removes_player(client):
     assert [p["name"] for p in info["players"]] == ["Ama"]
 
 
+# --------------------------------------------------------------- cleanup
+
+
+def test_prune_removes_abandoned_rooms(client):
+    created = make_room(client)
+    code = created["room"]["code"]
+    session = client.app_module.manager.rooms[code]
+    manager = client.app_module.manager
+
+    # fresh room is kept
+    manager.prune()
+    assert code in manager.rooms
+
+    # a room nobody is connected to, idle past the TTL, is dropped
+    for slot in session.players.values():
+        slot.connected = False
+    session.last_activity = __import__("time").time() - manager_ttl(client) - 5
+    manager.prune()
+    assert code not in manager.rooms
+    assert not (client.app_module.ROOM_DIR / f"{code}.json").exists()
+
+
+def manager_ttl(client):
+    return client.app_module.ROOM_TTL
+
+
 # --------------------------------------------------------------- timer
 
 

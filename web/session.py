@@ -129,6 +129,7 @@ class Session:
     relations: dict[str, dict] = field(default_factory=dict)  # "a|b" sorted -> {state, reputation}
     explored: dict[str, list[str]] = field(default_factory=dict)  # player_id -> ["x,y", ...]
     seq: int = 0
+    last_activity: float = field(default_factory=time.time)
 
     game_map: Any = None
 
@@ -567,6 +568,7 @@ class Session:
 
     def _log(self, kind: str, actor: str | None, text: str) -> dict:
         self.seq += 1
+        self.last_activity = time.time()
         entry = {
             "seq": self.seq,
             "kind": kind,
@@ -910,6 +912,7 @@ class Session:
             "relations": self.relations,
             "explored": self.explored,
             "seq": self.seq,
+            "last_activity": self.last_activity,
             "terrain": terrain,
             "width": self.game_map.width,
             "height": self.game_map.height,
@@ -952,4 +955,5 @@ class Session:
         session.relations = data.get("relations", {})
         session.explored = data.get("explored", {})
         session.seq = data.get("seq", 0)
+        session.last_activity = data.get("last_activity", time.time())
         return session
