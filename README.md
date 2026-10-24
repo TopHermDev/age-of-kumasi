@@ -47,11 +47,12 @@ historical ages, and conquer the Gold Coast.
 ## Requirements
 
 - **Python 3.10+** (developed on 3.14)
-- No external dependencies — uses only Python standard library
+- The terminal game uses **only the Python standard library**
+- The web/multiplayer server additionally needs FastAPI + Uvicorn (`requirements.txt`)
 
 ## Setup
 
-### Quick Start
+### Quick Start — terminal
 
 ```bash
 # Clone the repository
@@ -62,11 +63,26 @@ cd age-of-kumasi
 python3 src/main.py
 ```
 
+### Quick Start — browser multiplayer
+
+```bash
+python3 -m pip install -r requirements.txt
+uvicorn web.app:app --host 0.0.0.0 --port 8000
+# then open http://localhost:8000
+```
+
+One player creates a room and shares the 4-character code; everyone else joins
+with it (2–6 players, plus spectators). The browser speaks exactly the same
+commands as the terminal.
+
 ### Verify Installation
 
 ```bash
 # Quick smoke test (non-interactive)
 echo -e "ashanti\nstatus\nhelp\nquit" | python3 src/main.py
+
+# Web layer: unit + API + WebSocket tests
+python3 -m pytest tests/ -q
 ```
 
 ### Project Structure
@@ -87,6 +103,13 @@ age-of-kumasi/
 │   ├── ai.py                # AI opponent with 3 personalities
 │   ├── campaign.py          # 3 historical campaign scenarios
 │   └── save_load.py         # JSON save/load serialization
+├── web/
+│   ├── app.py               # FastAPI server: REST + WebSocket, room registry, turn timer
+│   ├── session.py           # Server-authoritative multiplayer session (turns, fog, diplomacy)
+│   └── static/              # Browser client (terminal-style UI, no build step)
+├── tests/
+│   └── test_web.py          # API, WebSocket, fog-of-war, diplomacy and persistence tests
+├── requirements.txt         # Web server + test dependencies
 ├── DESIGN.md                # Game design concept document
 ├── LICENSE                  # MIT License
 └── README.md                # This file
@@ -153,6 +176,73 @@ Choose a civilization, then enter commands at the prompt.
 3. **Age of the Stool** — Palace, gunpowder, elite infantry
 4. **Age of Resistance** — Siege, war drums, final conflict
 
+## Multiplayer (browser)
+
+The web layer wraps the *existing* engine — same civilisations, units, techs, combat
+and map — in a server-authoritative multiplayer service.
+
+### How it works
+
+- **Server-authoritative.** The browser never simulates the game; it sends commands
+  and renders snapshots. Turn order, resources, combat and fog are computed on the
+  server, so a modified client cannot cheat.
+- **Per-player snapshots.** Every connected client receives its *own* snapshot, with
+  fog of war applied server-side: unexplored cells arrive with `g: null` and enemies
+  only appear while inside your vision radius (4 tiles). An un-hacked client cannot
+  see what it has not scouted.
+- **Rooms** are created from the browser and joined with a 4-character code
+  (2–6 players, unlimited spectators). Rooms are persisted as JSON under
+  `var/rooms/<CODE>.json`, so a server restart resumes sessions mid-game.
+- **Turns** are sequential. Each player's `end` runs the engine's `process_turn()`
+  (income, training, construction, research) and passes the move on. With a turn
+  timer configured, the server ends the turn automatically when it expires.
+- **Diplomacy is conversational**, so it is *not* turn-gated: you can answer an
+  alliance offer while another player is thinking.
+
+### Multiplayer commands
+
+Everything from the terminal works unchanged (`gather`, `build`, `train`, `advance`,
+`research`, `move`, `list`, `status`, `map`, `help`, `end`), plus:
+
+| Command | Effect |
+|---|---|
+| `attack [player]` | Attack that player's forces (default: an opponent you are at war with, else the nearest) |
+| `defend [player]` | Let that player's forces attack first, then counter-attack |
+| `propose alliance <player>` | Offer an alliance (they get a notice and an Accept/Reject button) |
+| `accept alliance <player>` / `reject alliance <player>` | Answer an offer |
+| `declare war <player>` | Declare war (breaking an alliance costs more reputation) |
+| `tribute <res> <n> <player>` | Gift resources to improve relations |
+| `demand <res> <n> <player>` | Demand resources — refused (and it costs reputation) unless they fear you |
+| `players` | List players, ages and who is on turn |
+| `/<message>` or `chat <message>` | Talk to the room |
+
+### HTTP + WebSocket API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/health` | Liveness + room count |
+| `GET` | `/api/civs` | Civilisation list for the lobby |
+| `GET` | `/api/rooms` | Open rooms (lobby + in progress) |
+| `POST` | `/api/rooms` | Create a room — returns `room`, `player_id`, `snapshot` |
+| `POST` | `/api/rooms/{code}/join` | Join (or spectate) |
+| `POST` | `/api/rooms/{code}/start` | Host starts the game (≥ 2 players) |
+| `GET` | `/api/rooms/{code}/state` | Fog-adjusted snapshot for one player |
+| `POST` | `/api/rooms/{code}/command` | Run a command |
+| `POST` | `/api/rooms/{code}/end-turn` | End your turn |
+| `POST` | `/api/rooms/{code}/chat` | Send a chat message |
+| `DELETE` | `/api/rooms/{code}/leave` | Leave the room |
+| `WS` | `/ws/{code}/{player_id}` | Push channel: snapshots, chat, timeouts |
+
+`player_id` is a random token returned at create/join — it is the only credential
+needed to act in a room (no accounts, no cookies).
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AOK_HOST` / `AOK_PORT` | `0.0.0.0` / `8000` | Bind address for `python -m web.app` |
+| `AOK_ROOM_DIR` | `./var/rooms` | Where persisted rooms are stored |
+
 ## Roadmap
 
 - [x] Core game engine (civilizations, units, buildings)
@@ -162,7 +252,7 @@ Choose a civilization, then enter commands at the prompt.
 - [x] Map engine with terrain and fog of war
 - [x] Campaign mode (3 scenarios)
 - [x] Save/load game state
-- [ ] Multi-user web browser playable ([Issue #1](https://github.com/TopHermDev/age-of-kumasi/issues/1))
+- [x] Multi-user web browser playable ([Issue #1](https://github.com/TopHermDev/age-of-kumasi/issues/1))
 - [ ] Sound effects and music
 - [ ] More campaign scenarios
 - [ ] Unit animations in terminal

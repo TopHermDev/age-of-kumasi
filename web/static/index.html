@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#050a05" />
+  <title>Age of Kumasi — Multiplayer</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">◈</span>
+      <div class="brand-text">
+        <h1>AGE<span class="slash">/</span>KUMASI</h1>
+        <p>gold coast · turn-based strategy</p>
+      </div>
+    </div>
+    <div class="health" id="health-chip" title="Server status">
+      <span class="led led-idle" id="health-led" aria-hidden="true"></span>
+      <span id="health-text">connecting</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ------------------------------------------------------------ lobby -->
+    <section id="lobby-screen" class="screen" aria-labelledby="lobby-title">
+      <div class="lobby-grid">
+        <section class="panel lobby-form-panel">
+          <div class="panel-head">
+            <h2 id="lobby-title">Enlist</h2>
+            <span class="muted">one commander per slot</span>
+          </div>
+          <div class="panel-body">
+            <form id="create-form" autocomplete="off">
+              <label for="name-input">Commander name</label>
+              <input id="name-input" name="name" maxlength="20" placeholder="e.g. Yaa Asantewaa" required />
+
+              <label for="civ-select">Civilisation</label>
+              <select id="civ-select" name="civ" disabled>
+                <option value="ashanti">Ashanti</option>
+              </select>
+              <p class="civ-note" id="civ-note">loading civilisations…</p>
+
+              <div class="field-row">
+                <div class="field">
+                  <label for="max-players">Players</label>
+                  <select id="max-players">
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4" selected>4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="turn-seconds">Turn timer</label>
+                  <select id="turn-seconds">
+                    <option value="0">off</option>
+                    <option value="30">30 s</option>
+                    <option value="60" selected>60 s</option>
+                    <option value="120">120 s</option>
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block" id="create-btn">Create room</button>
+            </form>
+
+            <div class="divider"><span>or join a camp</span></div>
+
+            <form id="join-form" autocomplete="off">
+              <label for="code-input">Room code</label>
+              <div class="field-row field-row-tight">
+                <input id="code-input" name="code" class="code-input" maxlength="6" placeholder="ABCD"
+                       autocapitalize="characters" spellcheck="false" />
+                <button type="submit" class="btn" id="join-btn">Join room</button>
+              </div>
+              <label class="check" for="spectator-check">
+                <input type="checkbox" id="spectator-check" />
+                <span>Join as spectator</span>
+              </label>
+            </form>
+
+            <p class="notice" id="lobby-notice" role="status" aria-live="polite" hidden></p>
+          </div>
+        </section>
+
+        <section class="panel rooms-panel" aria-labelledby="rooms-title">
+          <div class="panel-head">
+            <h2 id="rooms-title">Open camps</h2>
+            <span class="muted" id="rooms-updated">—</span>
+          </div>
+          <div class="rooms-list" id="rooms-list">
+            <p class="empty">scanning for camps…</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------- room -->
+    <section id="room-screen" class="screen" hidden aria-label="Game room">
+      <div class="panel room-head">
+        <div class="room-id">
+          <span class="label">room</span>
+          <button type="button" class="code-copy" id="copy-code" title="Copy room code">
+            <span id="room-code">----</span>
+            <span class="copy-hint" aria-hidden="true">copy</span>
+          </button>
+          <span class="state-pill state-lobby" id="state-pill">lobby</span>
+        </div>
+
+        <div class="room-meta">
+          <div class="meta-block"><span class="label">turn</span><span id="turn-number">—</span></div>
+          <div class="meta-block"><span class="label">active</span><span id="active-player">—</span></div>
+          <div class="meta-block"><span class="label">timer</span><span id="turn-timer">off</span></div>
+          <div class="meta-block"><span class="label">link</span><span id="conn-status" class="conn conn-idle">offline</span></div>
+        </div>
+
+        <div class="room-actions">
+          <button type="button" class="btn btn-primary" id="start-btn" hidden>Start game</button>
+          <button type="button" class="btn btn-ghost" id="leave-btn">Leave room</button>
+        </div>
+      </div>
+
+      <p class="hint" id="start-hint" hidden></p>
+      <div class="banner banner-victory" id="finished-banner" role="status" hidden></div>
+
+      <section class="panel waiting-panel" id="waiting-panel">
+        <div class="panel-head">
+          <h2>Mustering</h2>
+          <span class="muted" id="waiting-note">waiting for players</span>
+        </div>
+        <div class="panel-body">
+          <p class="muted" id="waiting-copy">
+            Share the room code. The host starts the game once at least two commanders are present.
+          </p>
+          <ul class="player-cards" id="waiting-players"></ul>
+        </div>
+      </section>
+
+      <div class="game-layout" id="game-view" hidden>
+        <section class="panel map-panel" aria-labelledby="map-title">
+          <div class="panel-head">
+            <h2 id="map-title">Territory</h2>
+            <span class="muted" id="map-meta">—</span>
+          </div>
+          <div class="map-scroll">
+            <pre class="map" id="map" aria-label="Game map"></pre>
+          </div>
+          <p class="legend" id="legend">
+            <span><b class="t-coast">~</b> coast</span>
+            <span><b class="t-savanna">.</b> savanna</span>
+            <span><b class="t-forest">T</b> forest</span>
+            <span><b class="t-gold">G</b> gold</span>
+            <span><b class="t-kola">K</b> kola</span>
+            <span><b class="t-village">V</b> village</span>
+            <span><b class="t-river">≈</b> river</span>
+            <span><b class="occ-self">@</b> you</span>
+            <span><b class="occ-ally">+</b> ally</span>
+            <span><b class="occ-enemy">!</b> enemy</span>
+          </p>
+        </section>
+
+        <aside class="side">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Domain</h2>
+              <span class="muted" id="status-age">—</span>
+            </div>
+            <div class="status-body" id="status-body"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Powers</h2>
+              <span class="muted" id="players-count">—</span>
+            </div>
+            <ul class="players-list" id="players-list"></ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Diplomacy</h2>
+              <span class="muted">alliances &amp; grudges</span>
+            </div>
+            <ul class="diplo-list" id="diplomacy-list"></ul>
+          </section>
+        </aside>
+
+        <div class="console-row">
+          <section class="panel log-panel">
+            <div class="panel-head">
+              <h2>Chronicle</h2>
+              <span class="muted" id="log-count">0 entries</span>
+            </div>
+            <div class="log" id="log" role="log" aria-live="off" aria-label="Game log"></div>
+            <p class="hint command-hint" id="turn-hint" hidden></p>
+            <div class="command-bar">
+              <span class="prompt" aria-hidden="true">&gt;</span>
+              <input id="command-input" type="text" autocomplete="off" spellcheck="false"
+                     placeholder="help · status · gather food 3" aria-label="Command" />
+              <button type="button" class="btn btn-small" id="end-turn-btn">End turn</button>
+            </div>
+          </section>
+
+          <section class="panel chat-panel">
+            <div class="panel-head">
+              <h2>Messenger</h2>
+              <span class="muted">room chat</span>
+            </div>
+            <div class="chat" id="chat" role="log" aria-live="off" aria-label="Room chat"></div>
+            <form class="chat-form" id="chat-form">
+              <input id="chat-input" type="text" maxlength="500" autocomplete="off"
+                     placeholder="message the room" aria-label="Chat message" />
+              <button type="submit" class="btn btn-small" id="chat-send">Send</button>
+            </form>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="banner banner-warn reconnect" id="reconnect-banner" role="status" hidden>reconnecting…</div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <noscript>
+    <p class="noscript">Age of Kumasi needs JavaScript enabled to reach the room server.</p>
+  </noscript>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>
